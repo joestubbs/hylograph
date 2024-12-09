@@ -1,5 +1,6 @@
 Overview
 ---------
+
 Hylo Graph provides a framework for rapidly developing hybrid logic-language model enabled applications that 
 provide natural language interfaces to knowledge representations. An overview is depicted in the following
 figure.
