@@ -6,7 +6,7 @@ from logs import get_logger
 logger = get_logger("run.py", level=logging.INFO)
 
 
-from graphs import text2query_graph
+from graphs import text2query_graph, text2query_sim_graph
 from states import Text2QueryGraphState
 from apps.astria import astria_text2cypher_app_config
 
@@ -16,7 +16,9 @@ config = {"configurable": {"thread_id": "1"}}
 
 
 # todo -- create a configurable system for these 
-graph = text2query_graph
+# graph = text2query_graph
+graph = text2query_sim_graph
+
 
 def get_new_state(question):
     state = Text2QueryGraphState()

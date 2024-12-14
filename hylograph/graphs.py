@@ -6,6 +6,7 @@ from edges import *
 from states import Text2QueryGraphState
 
 
+# a basic text2query graph
 text2query_graph_builder = StateGraph(Text2QueryGraphState)
 
 # Add nodes
@@ -19,6 +20,30 @@ text2query_graph_builder.add_edge(START, "generate_examples")
 text2query_graph_builder.add_edge("generate_examples", "generate_cypher")
 text2query_graph_builder.add_edge("generate_cypher", "validate_cypher")
 text2query_graph_builder.add_conditional_edges("validate_cypher", 
+                                               edge_query_has_error,
+                                               {"repair_cypher": "repair_cypher",
+                                                END: END})
+
+
+# a text2query graph that includes a similarity checker node 
+text2query_similarity_graph_builder = StateGraph(Text2QueryGraphState)
+
+# Add nodes
+text2query_similarity_graph_builder.add_node("get_question_similarity", node_get_question_similarity)
+text2query_similarity_graph_builder.add_node("generate_examples", node_filter_neo4j_examples)
+text2query_similarity_graph_builder.add_node("generate_cypher", node_generate_cypher)
+text2query_similarity_graph_builder.add_node("validate_cypher", node_validate_cypher)
+text2query_similarity_graph_builder.add_node("repair_cypher", node_repair_cypher)
+
+# Add edges 
+text2query_similarity_graph_builder.add_edge(START, "get_question_similarity")
+text2query_similarity_graph_builder.add_conditional_edges("get_question_similarity", 
+                                                          edge_has_query,
+                                                          {"generate_examples": "generate_examples",
+                                                           "validate_cypher": "validate_cypher"})
+text2query_similarity_graph_builder.add_edge("generate_examples", "generate_cypher")
+text2query_similarity_graph_builder.add_edge("generate_cypher", "validate_cypher")
+text2query_similarity_graph_builder.add_conditional_edges("validate_cypher", 
                                     edge_query_has_error,
                                     {"repair_cypher": "repair_cypher",
                                      END: END})
@@ -33,3 +58,5 @@ memory = MemorySaver()
 #    object (e.g., the get_schema)
 # text2query_graph = text2query_graph_builder.compile(checkpointer=memory)
 text2query_graph = text2query_graph_builder.compile()
+
+text2query_sim_graph = text2query_similarity_graph_builder.compile()

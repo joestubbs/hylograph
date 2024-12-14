@@ -2,8 +2,17 @@ import logging
 from neo4j import GraphDatabase
 import os 
 
+# These next three lines swap the stdlib sqlite3 lib with the pysqlite3 package
+# This is required by the Chroma package and must appear BEFORE the import.
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+import chromadb
 from langchain_community.vectorstores import Chroma
+from langchain_community.cache import SQLiteCache
 from langchain_core.example_selectors import SemanticSimilarityExampleSelector
+from langchain_core.globals import set_llm_cache
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import FewShotPromptTemplate, PromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
@@ -11,14 +20,7 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 from logs import get_logger
 from states import Text2QueryGraphState
 
-
 logger = get_logger(name="nodes.py", level=logging.INFO, strategy="stream")
-
-# These next three lines swap the stdlib sqlite3 lib with the pysqlite3 package
-# This is required by the Chroma package
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 
 # Defaults
@@ -27,7 +29,7 @@ DEFAULT_EMBEDDING_MODEL = "mxbai-embed-large"
 DEFAULT_LLM = "llama3.1:8b"
 
 
-# Implementation Function
+# Implementation Functions
 
 def validate_cypher(query, neo4j_uri, neo4j_auth): 
     """
@@ -67,8 +69,8 @@ def get_example_selector(all_examples,
     example_selector = SemanticSimilarityExampleSelector.from_examples(
         examples = all_examples,
         embeddings = model,
-        # vectorstore_cls = Chroma(persist_directory="/home/jstubbs/tmp/ASTRIA/chroma"),
-        vectorstore_cls = Chroma,
+        vectorstore_cls = Chroma(persist_directory="/home/jstubbs/tmp/ASTRIA/chroma"),
+        # vectorstore_cls = Chroma,
         k=nbr_examples,   
     )
     return example_selector
@@ -86,10 +88,43 @@ def filter_examples(question,
     return example_selector.select_examples({"question": question})
 
 
-def _get_llm(model=DEFAULT_LLM, base_url=DEFAULT_MODEL_URL):
+def get_question_similarity(question, all_examples, min_l2_distance=0.5):
+    """
+    Compute the example with the greatest similarity to the `question` from the known `examples`, and
+    return the example if the L2-norm distance is less than `min_l2_distance`; otherwise, return None. 
+    """
+    example_questions = [e['question'] for e in all_examples]
+    chroma_client = chromadb.PersistentClient(path="/home/jstubbs/tmp/ASTRIA/chroma")
+    collection = chroma_client.get_or_create_collection(name="astria_questions")
+    collection.add(documents=example_questions, ids=[f"id{x}" for x in range(len(example_questions))])
+    # get the single closest example
+    results = collection.query(query_texts=[question], n_results=1)
+    if 'distances' in results.keys():
+        r = results['distances'][0][0]
+        logger.info(f"distance associated with closest example: {r}")
+        # r == 0.0 is None in 
+        if r is not None and r < min_l2_distance:
+            matching_question = results['documents'][0][0]
+            for e in all_examples:
+                if e['question'] == matching_question:
+                    query = e['query']
+                    logger.info(f"Found a matching question; returning known query: {query}")
+                    return query
+            logger.info("Found r but did not find a matching question; returning None")
+        else:
+            logger.info("No question sufficiently similar; returning None")
+    else:
+        logger.info("Did not find a distances key; returning None")
+
+    return None
+
+
+def _get_llm(model=DEFAULT_LLM, base_url=DEFAULT_MODEL_URL, cache_responses=True):
     """
     Returns the LLM for this graph.
     """
+    if cache_responses:
+        set_llm_cache(SQLiteCache(database_path="/home/jstubbs/tmp/langchain.db"))
     return ChatOllama(model=model, base_url=base_url)
 
 
@@ -206,6 +241,44 @@ def node_filter_neo4j_examples(state: Text2QueryGraphState):
     logger.info("node_filter_neo4j_examples complete.")
     return state 
 
+
+def node_get_question_similarity(state: Text2QueryGraphState):
+    """
+    LangGraph node to check whether a natural language question is 
+    sufficiently similar to a known example. Returns the known example, 
+    as a query, if the L2-norm distance is less than the threshold; otherwise
+    returns None.
+
+    Required Configuration: 
+     - app_config["get_neo4j_examples"]: Callable returning the app's Neo4j examples.
+
+    Optional Configuration: 
+     - app_config["min_l2_distance"]: Minimum distance, as a float, to use a pre-defined example.
+
+    Required State:
+     - question: A user-provided question
+
+    Modifies State:
+     - generated_cypher: The cypher associated with the most similar question, if the distance is sufficiently 
+       small; otherwise, None.
+
+    """
+    logger.info(f"Executing node_get_question_similarity")
+    question = state["question"]
+    app_config = state["app_config"]
+    get_neo4j_examples = app_config["get_neo4j_examples"]  
+    min_l2_distance = app_config.get("min_l2_distance")
+    if min_l2_distance:  
+        generated_cypher = get_question_similarity(question=question, 
+                                                all_examples=get_neo4j_examples(), 
+                                                min_l2_distance=min_l2_distance)
+    else: 
+        generated_cypher = get_question_similarity(question=question, 
+                                                   all_examples=get_neo4j_examples())
+
+    state["generated_cypher"] = generated_cypher
+    return state
+    
 
 def node_generate_cypher(state: Text2QueryGraphState):
     """

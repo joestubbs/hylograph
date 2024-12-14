@@ -38,7 +38,7 @@ astria_text2cypher_app_config = {
     "neo4j_auth": NEO4J_AUTH,
     "get_neo4j_examples": get_neo4j_examples,
     "get_neo4j_schema": get_schema,
-    "model_base_url": "https://ollama.pods.tacc.develop.tapis.io",
-    
+    # "model_base_url": "https://ollama.pods.tacc.develop.tapis.io",
+    "model_base_url": "http://localhost:11434"
 
 }
