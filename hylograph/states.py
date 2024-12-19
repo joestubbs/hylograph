@@ -30,3 +30,15 @@ class Text2QueryGraphState(State):
     prompt: object 
     generated_cypher: str
     query_error: str
+
+
+class Text2QueryGraphExecuteState(State):
+    question: str
+    examples: List[dict]
+    prompt: object 
+    generated_cypher: str
+    query_error: str
+    error_from_neo4j: object
+    records: object 
+    summary: object 
+    keys: object

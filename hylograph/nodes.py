@@ -9,7 +9,8 @@ import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 import chromadb
-from langchain_community.vectorstores import Chroma
+from chromadbx import DocumentSHA256Generator
+from langchain_chroma import Chroma
 from langchain_community.cache import SQLiteCache
 from langchain_core.example_selectors import SemanticSimilarityExampleSelector
 from langchain_core.globals import set_llm_cache
@@ -94,15 +95,23 @@ def get_question_similarity(question, all_examples, min_l2_distance=0.5):
     return the example if the L2-norm distance is less than `min_l2_distance`; otherwise, return None. 
     """
     example_questions = [e['question'] for e in all_examples]
-    chroma_client = chromadb.PersistentClient(path="/home/jstubbs/tmp/ASTRIA/chroma")
-    collection = chroma_client.get_or_create_collection(name="astria_questions")
-    collection.add(documents=example_questions, ids=[f"id{x}" for x in range(len(example_questions))])
+    chroma_client = chromadb.PersistentClient(path="/home/jstubbs/tmp/hylograph/chroma")
+    collection = chroma_client.get_or_create_collection(name="questions")
+    # only add the documents that are not already in the db:
+    to_add = []
+    for e in example_questions:
+        doc_id = DocumentSHA256Generator(documents=[e])[0]
+        r = collection.get(doc_id)
+        if not doc_id in r['ids']:
+            to_add.append(e)
+    if len(to_add) > 0:
+        collection.add(documents=example_questions, ids=DocumentSHA256Generator(documents=to_add))
     # get the single closest example
     results = collection.query(query_texts=[question], n_results=1)
     if 'distances' in results.keys():
         r = results['distances'][0][0]
         logger.info(f"distance associated with closest example: {r}")
-        # r == 0.0 is None in 
+        # r == 0.0 is None
         if r is not None and r < min_l2_distance:
             matching_question = results['documents'][0][0]
             for e in all_examples:
@@ -134,7 +143,7 @@ def create_few_shot_cypher_prompt(examples):
     without context variable. 
     
      - examples: a list of dictionaries of cypher examples; each dict should have a `question` and
-                 `answer` key.
+                 `query` key.
     """
 
     # First, create the PromptTemplate that formats the examples into a string
@@ -166,17 +175,22 @@ def create_few_shot_cypher_prompt(examples):
         input_variables =["question", "query"],
     ) 
     return few_shot_prompt
-
+    
 
 def create_cypher_repair_prompt():
     """
     Create a prompt template to instruct an LLM to repair a previously generated Cypher query.
     """
     template = """
-    Task: Repair the previously generated cypher query to fix the listed errors.
+    Task: Generate Cypher statement to query a graph database.
     Instructions: The Cypher statement you generated to query a graph database was not correct. 
     Use only the provided relationship types and properties in the schema.
     Do not use any other relationship types or properties that are not provided.
+
+    Note: Do not include any explanations or apologies in your responses.
+    Do not respond to any questions that might ask anything else than for you to construct a Cypher statement.
+    Do not include any text except the generated Cypher statement.
+
     Here is the original question: {question}
     Here is the query you generated that had errors: {query}
     Here are the errors associated with the query you generated: {error}
@@ -193,11 +207,28 @@ def invoke_llm_chain(prompt_template, template_args, model=DEFAULT_LLM, base_url
      - template_args: dictionary of template variables and values. 
 
     """
+    # logger.info(f"top of invoke_llm_chain; template_args: {template_args}")
     llm = _get_llm(model, base_url)
     parser = StrOutputParser()
     chain = prompt_template | llm | parser
     result = chain.invoke(template_args)
     return result
+
+
+def execute_cypher_query(query, neo4j_uri, neo4j_auth):
+    """
+    Execute the cypher `query`.
+    The first field returned is the error field,
+    """
+    logger.info(f"Executing execute_cypher_query for query: {query}")
+    with GraphDatabase.driver(neo4j_uri, auth=neo4j_auth) as driver:
+        try:
+            records, summary, keys = driver.execute_query(query)
+            logger.info("Returning from execute_cypher_query with no errors")
+            return None, records, summary, keys 
+        except Exception as e:
+            logger.info(f"Returning from execute_cypher_query with error: {e}")
+            return e, None, None, None 
 
 
 # Nodes -------
@@ -398,3 +429,43 @@ def node_repair_cypher(state: Text2QueryGraphState):
     logger.info(f"node_repair_cypher complete; generated_cypher: {generated_cypher}")
     return state
 
+
+def node_execute_cypher(state: Text2QueryGraphState):
+    """
+    LangGraph node to execute the cypher query on the actual Neo4j database.
+
+    Required Configuration: 
+     - app_config["neo4j_URI"]: String representing the NEO4J_URI.
+     - app_config["neo4j_AUTH"]: Tuple representing the NEO4J_AUTH.
+
+    Required State:
+     - generated_cypher: A cypher query previously generatd. 
+
+    Modifies State: 
+     - neo4j_records: The `records` response to the cypher query from the database if there
+       was no error.
+     - neo4j_summary: The `summary` response to the cypher query from the database if there
+       was no error.
+     - neo4j_keys: The `keys` response to the cypher query from the database if there
+       was no error.
+     - error_from_neo4j: The error returned by Neo4j if there was one. 
+         
+    """
+    logger.info(f"Executing node_execute_cypher")
+    query = state["generated_cypher"]
+    app_config = state["app_config"]
+
+    neo4j_uri = app_config["neo4j_uri"]
+    neo4j_auth = app_config["neo4j_auth"]
+
+    error, records, summary, keys = execute_cypher_query(query, neo4j_uri, neo4j_auth)    
+    # error will either be None or a string representing the error
+    state["error_from_neo4j"] = error
+    state['records'] = records
+    state['summary'] = summary
+    state['keys'] = keys
+
+    logger.info(f"node_execute_cypher complete; error_from_neo4j: {error}.")
+    if len(records) > 0: 
+        logger.info(f"At least one record returned; len(records): {len(records)}; r[0].data: {records[0].data()}")
+    return state
