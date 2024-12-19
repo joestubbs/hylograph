@@ -42,3 +42,63 @@ astria_text2cypher_app_config = {
     "model_base_url": "http://localhost:11434"
 
 }
+
+benchmark = {
+    "low_question_low_query": [
+        # {
+        #     "question": "",
+        #     "query": "",
+        #     "result": "",
+        # },
+        {
+            "question": "How many sensors are in the catalog?",
+            "query": "MATCH (o:Sensor) RETURN count(o) as nodes",
+            "result": "6",
+        },
+        {
+            "question": "How many measurements are in the catalog?",
+            "query": "MATCH (o:Measurement) RETURN count(o) as nodes",
+            "result": "259100",
+        },
+        {
+            "question": "How many space objects in the catalog are from the US?",
+            "query": "MATCH (o:SpaceObject {Country: 'US'}) RETURN count(o) as nodes",
+            "result": "16067397",
+        },
+        {
+            "question": "Which space object has the smallest AreaToMass?",
+            "query": "MATCH (d:SpaceObject) RETURN d ORDER BY d.AreaToMass LIMIT 1", 
+            "result": "(:SpaceObject:'2022-11-05' {AreaToMass: 3.94E-6})"
+        },
+
+    ],
+
+    "low_question_high_query": [
+        {
+            "question": "Which data sources are not public?",
+            "query": "MATCH (d: DataSource {PublicData: FALSE}) RETURN d.Name",
+            "result": "",
+        },
+
+    ],
+
+    "high_question_low_query": [
+        # {
+        #     "question": "",
+        #     "query": "",
+        #     "result": "",
+        # },
+
+    ],
+
+    "high_question_high_query": [
+        {
+            "question": "How many measurements were taken in the year 2020 of the  on ",
+            "query": "",
+            "result": "",
+        },
+    ],
+
+}
+"MATCH (o:SpaceObject {Name: 'VANGUARD 1'})-- (n) RETURN count(n) AS connectedNodes"
+"MATCH (o:SpaceObject {Name: 'VANGAURD 1'})-[r]-(b) RETURN r"
