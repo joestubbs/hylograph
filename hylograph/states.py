@@ -39,6 +39,4 @@ class Text2QueryGraphExecuteState(State):
     generated_cypher: str
     query_error: str
     error_from_neo4j: object
-    records: object 
-    summary: object 
-    keys: object
+    result: object 

@@ -12,6 +12,7 @@ import chromadb
 from chromadbx import DocumentSHA256Generator
 from langchain_chroma import Chroma
 from langchain_community.cache import SQLiteCache
+from langchain_community.graphs import Neo4jGraph
 from langchain_core.example_selectors import SemanticSimilarityExampleSelector
 from langchain_core.globals import set_llm_cache
 from langchain_core.output_parsers import StrOutputParser
@@ -117,8 +118,11 @@ def get_question_similarity(question, all_examples, min_l2_distance=0.5):
             for e in all_examples:
                 if e['question'] == matching_question:
                     query = e['query']
-                    logger.info(f"Found a matching question; returning known query: {query}")
-                    return query
+                    # the examples have `{{` and  `}}` to make them suitable for prompt templates, but 
+                    # these are invaldi cypher
+                    fixed_query = query.replace("{{", "{").replace("}}", "}")
+                    logger.info(f"Found a matching question; returning known query: {fixed_query}")
+                    return fixed_query
             logger.info("Found r but did not find a matching question; returning None")
         else:
             logger.info("No question sufficiently similar; returning None")
@@ -215,20 +219,24 @@ def invoke_llm_chain(prompt_template, template_args, model=DEFAULT_LLM, base_url
     return result
 
 
-def execute_cypher_query(query, neo4j_uri, neo4j_auth):
+def execute_cypher_query(query, neo4j_uri, neo4j_auth, neo4j_database=None):
     """
     Execute the cypher `query`.
     The first field returned is the error field,
     """
     logger.info(f"Executing execute_cypher_query for query: {query}")
-    with GraphDatabase.driver(neo4j_uri, auth=neo4j_auth) as driver:
-        try:
-            records, summary, keys = driver.execute_query(query)
-            logger.info("Returning from execute_cypher_query with no errors")
-            return None, records, summary, keys 
-        except Exception as e:
-            logger.info(f"Returning from execute_cypher_query with error: {e}")
-            return e, None, None, None 
+    if neo4j_database:
+        graph = Neo4jGraph(url=neo4j_uri, username=neo4j_auth[0], password=neo4j_auth[1], database=neo4j_database)
+    else:
+        graph = Neo4jGraph(url=neo4j_uri, username=neo4j_auth[0], password=neo4j_auth[1])
+    try:
+        # get only the first result
+        result = graph.query(query=query)[:1]
+        logger.info("Returning from execute_cypher_query with no errors")
+        return None, result 
+    except Exception as e:
+        logger.info(f"Returning from execute_cypher_query with error: {e}")
+        return e, None
 
 
 # Nodes -------
@@ -438,15 +446,14 @@ def node_execute_cypher(state: Text2QueryGraphState):
      - app_config["neo4j_URI"]: String representing the NEO4J_URI.
      - app_config["neo4j_AUTH"]: Tuple representing the NEO4J_AUTH.
 
+    Optional Configuration:
+     - app_config["neo4j_database"]: The database to use when connecting to Neo4j.
+
     Required State:
      - generated_cypher: A cypher query previously generatd. 
 
     Modifies State: 
-     - neo4j_records: The `records` response to the cypher query from the database if there
-       was no error.
-     - neo4j_summary: The `summary` response to the cypher query from the database if there
-       was no error.
-     - neo4j_keys: The `keys` response to the cypher query from the database if there
+     - neo4j_result: The `result` response to the cypher query from the database if there
        was no error.
      - error_from_neo4j: The error returned by Neo4j if there was one. 
          
@@ -457,15 +464,15 @@ def node_execute_cypher(state: Text2QueryGraphState):
 
     neo4j_uri = app_config["neo4j_uri"]
     neo4j_auth = app_config["neo4j_auth"]
-
-    error, records, summary, keys = execute_cypher_query(query, neo4j_uri, neo4j_auth)    
+    neo4j_database = app_config.get("neo4j_database")
+    
+    if neo4j_database:
+        error, result = execute_cypher_query(query, neo4j_uri, neo4j_auth, neo4j_database)    
+    else:
+        error, result = execute_cypher_query(query, neo4j_uri, neo4j_auth)    
     # error will either be None or a string representing the error
     state["error_from_neo4j"] = error
-    state['records'] = records
-    state['summary'] = summary
-    state['keys'] = keys
+    state['result'] = result 
 
     logger.info(f"node_execute_cypher complete; error_from_neo4j: {error}.")
-    if len(records) > 0: 
-        logger.info(f"At least one record returned; len(records): {len(records)}; r[0].data: {records[0].data()}")
     return state

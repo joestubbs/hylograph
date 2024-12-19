@@ -49,39 +49,21 @@ def process_user_input(user_input: str, app: str):
     Process a single input from the user by invoking the graph.
     """
     state = get_new_state(app, question=user_input)
-    result = graph.invoke(state, config=config)
-    logger.info(f"type(result): {type(result)}")
-    try:
-        logger.info(f"Keys of result: {result.keys()}")
-    except: pass 
-    query = result['generated_cypher']
-    error_from_neo4j = result.get('error_from_neo4j')
-    records = result.get("records")
+    rsp = graph.invoke(state, config=config)
+    logger.debug(f"type(rsp): {type(rsp)}")
+    query = rsp['generated_cypher']
+    error_from_neo4j = rsp.get('error_from_neo4j')
+    result = rsp.get("result")
     
     # build the response
     response = "Assistant: "
     if error_from_neo4j:
         response += f"We executed the query but got an error; details: {error_from_neo4j}"
     
-    elif records:
-        try:
-            tot_records = len(records)
-        except Exception as e:
-            logger.error(f"Error getting length of records: {records}; details: {e}")
-            response += "\nWe failed to parse the result. See the logs"
-            return response
-        if tot_records < 1:
-            logger.error(f"No records returned; records: {records}")
-            response += "\nWe failed to obtain any result. See the logs."
-            return response
-        response += "Answer: "
-        for r in records:
-            try:
-                response += f"{r.data()}\n"
-            except Exception as e:
-                logger.error(f"Error parring the result {r}; details: {e}")
+    elif result:
+        response += f"Answer: {result}"
     else:
-        logger.info(f"Records was none, records:{records}")
+        logger.info(f"Result was none, result: {result}")
         response += "We could not find the answer to that question."
             
     response += f"\nAssistant: Here is the query that was used: {query}"
@@ -97,7 +79,7 @@ def chatbot(app):
     logger.info("Starting chatbot")
 
     while True:
-        user_input = click.prompt(click.style("User: ", fg="green"))
+        user_input = click.prompt(click.style("\nUser: ", fg="green"))
         if user_input.lower() in ["quit", "exit", "q"]:
             click.echo(click.style("Goodbye!", fg="red"))
             break
