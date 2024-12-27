@@ -74,7 +74,7 @@ benchmarks automatically by inspecting the graph's schema. This
 work is based on the Neo4JLabs [text2cypher](https://github.com/neo4j-labs/text2cypher/tree/main) code
 repository and is available from within the 
 [samples_builder](samples_builder) directory. See 
-the [README](samples/builder/README.md) there for
+the [README](samples_builder/README.md) there for
 instructions. 
 
 To execute the framework in benchmark mode, run a command similar to:
