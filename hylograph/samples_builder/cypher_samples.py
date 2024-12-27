@@ -72,11 +72,18 @@ ALLOW_REPEATS = True
 M = 50
      
 
-# A list of all samplers, for convenience 
-all_samplers = []
+# A list of all samplers
+all_samplers_strs = []
 with open("all_samplers2.txt", 'r') as f:
     for s in f:
-        all_samplers.append(s)
+        all_samplers_strs.append(s)
+
+
+# A list of samplers that can be used for generating a benchmark 
+benchmark_samplers_strs = []
+with open("benchmark_samplers.txt", 'r') as f:
+    for s in f:
+        benchmark_samplers_strs.append(s)
 
 
 def gather_from_neo():
@@ -238,6 +245,8 @@ def count_nodes_of_given_label():
         subschema =  build_minimal_subschema(jschema,[[label_1, ]],[], False, False, False)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the total number of {label_1} in the graph!""",
+                   "NLQ": f"How many {label_1} are there?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) RETURN count(n)"
                    }
@@ -262,7 +271,7 @@ def paths_with_node_endpoint():
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Identify three paths where {label_1} is a start or end node!""",
                    "Schema": f"Graph schema: {subschema}",
-                   "Cypher": f" MATCH p=(b:{label_1})-[r*]->(n) RETURN p UNION MATCH p=(n)-[r*]->(b:{label_1}) RETURN p LIMIT 3"
+                   "Cypher": f"MATCH p=(b:{label_1})-[r*]->(n) RETURN p UNION MATCH p=(n)-[r*]->(b:{label_1}) RETURN p LIMIT 3"
                    }
         return message
 
@@ -288,6 +297,8 @@ def match_one_node_one_prop():
 
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Fetch the {label_1} nodes and extract their {prop_1} property!""",
+                   "NLQ": f"What is the {prop_1} of all {label_1} in the database?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) RETURN n.{prop_1}"
                    }
@@ -403,28 +414,6 @@ def find_node_property_count():
                                  allow_repeats= ALLOW_REPEATS)
 
 
-def find_node_by_property():
-    """Find instances of given node label that has a property with specified value."""
-
-    def prompter(*params, **kwargs):
-
-        label_1 = params[0]
-        prop_1 = params[1]
-        val_1 = params[2]
-
-        # Extract subschema for the variables of interest
-        subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
-        message = {"Prompt": f"{system_message}",
-                   "Question": f"""Find the {label_1} for which {prop_1} is {val_1}!""",
-                   "Schema": f"Graph schema: {subschema}",
-                   "Cypher": f"MATCH (n:{label_1} {{{prop_1}:'{val_1}'}}) RETURN n"
-                   }
-        return message
-
-    return build_node_sampler(dparsed["dtypes_parsed"],
-                              prompter,
-                              allow_repeats= ALLOW_REPEATS)
-
 def match_skip_limit_return_property():
     """Return a list of values of a property, using skip and limit."""
 
@@ -567,6 +556,8 @@ def find_node_by_property():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {label_1} for which {prop_1} is {val_1}!""",
+                   "NLQ": f"What {label_1} has a {prop_1} of {val_1}",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1} {{{prop_1}:'{val_1}'}}) RETURN n"
                    }
@@ -615,6 +606,8 @@ def match_where_skip_limit_return_property():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {label_1} for which {prop_1} starts with {val_1[0]}, skip the first {nrecs} records and return the next {nrecs} records of {prop_1}!""",
+                   "NLQ": f"What {label_1} has a {prop_1} that starts with {val_1[0]}, skip the first {nrecs} records and return the next {nrecs} records of {prop_1}",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} STARTS WITH '{val_1[0]}' WITH n.{prop_1} AS {prop_1} SKIP {nrecs} LIMIT {nrecs} RETURN {prop_1}"
                    }
@@ -637,6 +630,8 @@ def where_one_node_one_prop_one_val():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {label_1} where {prop_1} is {val_1.strip()}!""",
+                   "NLQ": f"What {label_1} has a {prop_1} that is {val_1.strip()}?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} = '{val_1}' RETURN n"
                    }
@@ -659,6 +654,8 @@ def where_one_node_one_string_contains():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {label_1} where {prop_1} contains {val_1[:5]}!""",
+                   "NLQ": f"What {label_1} has a {prop_1} that contains {val_1[:5]}?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} CONTAINS '{val_1[:5]}' RETURN n"
                    }
@@ -681,6 +678,8 @@ def find_node_by_start_substring():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {label_1} for which {prop_1} starts with {val_1[:3]}!""",
+                   "NLQ": f"What {label_1} has a {prop_1} that starts with {val_1[:5]}?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} STARTS WITH '{val_1[:3]}' RETURN n"
                    }
@@ -703,6 +702,8 @@ def where_one_node_string_re():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Fetch the {label_1} where {prop_1} ends with {val_1[:2]}!""",
+                   "NLQ": f"What {label_1} has a {prop_1} that ends with {val_1[:5]}?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} =~'{val_1[:2]}.*' RETURN n"
                    }
@@ -726,6 +727,8 @@ def find_count_in_interval():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""How many {label_1} have {prop_1} between January 1, 2010 and January 1, 2015?!""",
+                   "NLQ": f"How many {label_1} have {prop_1} between January 1, 2010 and January 1, 2015?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} >= date('2010-01-01') AND n.{prop_1} <= date('2015-01-01') RETURN count(n) AS {label_1}s"
         }
@@ -748,6 +751,8 @@ def find_nodes_today():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""List {label_1} that have {prop_1} in the last 24 hours!""",
+                   "NLQ": f"What {label_1} have {prop_1} in the last 24 hours?",
+                   "Complexity": "0,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} > datetime() - duration('P1D') RETURN n"
         }
@@ -769,6 +774,8 @@ def find_nodes_monday():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""How many {label_1} have {prop_1} on a Monday?""",
+                   "NLQ": f"How many {label_1} have {prop_1} on a Monday?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE date(n.{prop_1}).weekday = 1 RETURN count(n)"
         }
@@ -777,6 +784,7 @@ def find_nodes_monday():
     return build_node_sampler(dparsed["date_parsed"],  # dparsed["date_parsed"]+dparsed["date_time_parsed"] when available
                                  prompter,
                                  allow_repeats= ALLOW_REPEATS)
+
 
 def find_property_after_hour():
     """Find the count of nodes with given label and specified property dated after a given date and time."""
@@ -789,6 +797,8 @@ def find_property_after_hour():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find how many {label_1}s have {prop_1} after 6PM, January 1, 2020?""",
+                   "NLQ": f"How many {label_1} have {prop_1} after 6PM, January 1, 2020?",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} >= datetime('2010-01-01T18:00:00') RETURN count(n) AS {label_1}s"
         }
@@ -812,6 +822,8 @@ def where_one_node_one_prop_equals_year():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Fetch {label_1} where {prop_1} is in {date_year}!""",
+                   "NLQ": f"Return the {label_1} where {prop_1} is in {date_year}.",
+                   "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE date(n.{prop_1}).year = {date_year} RETURN n"
                    }
@@ -858,8 +870,10 @@ def find_unique_rels():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""How many unique relationships originate from {label_1} where {prop_1} is {val_1}?""",
+                   "NLQ": f"How many unique relationships originate from {label_1} where {prop_1} is {val_1}?",
+                   "Complexity": "0,1",
                    "Schema": f"Graph schema: {subschema}",
-                   "Cypher": f" MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->() RETURN COUNT(DISTINCT TYPE(r)) AS rels, TYPE(r)"
+                   "Cypher": f"MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->() RETURN COUNT(DISTINCT TYPE(r)) AS rels, TYPE(r)"
                    }
         return message
 
@@ -880,8 +894,10 @@ def connection_thru_two_rels():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""How many nodes are connected to {label_1} for which {prop_1} is {val_1}, by exactly two different types of relationships?""",
+                   "NLQ": f"How many objects are connected to a {label_1} with name {prop_1} {val_1}, by exactly two different types of relationships??",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
-                   "Cypher": f" MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->(n) WITH n, COLLECT(DISTINCT TYPE(r)) AS Types WHERE SIZE(Types) = 2 RETURN COUNT(n)"
+                   "Cypher": f"MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->(n) WITH n, COLLECT(DISTINCT TYPE(r)) AS Types WHERE SIZE(Types) = 2 RETURN COUNT(n)"
                    }
         return message
 
@@ -903,7 +919,7 @@ def rels_and_counts_and_nodes():
         message = {"Prompt": f"{system_message}",
                    "Question": f"""List the nodes that are connected to {label_1} for which {prop_1} is {val_1}, with their relationship types and count these types!""",
                    "Schema": f"Graph schema: {subschema}",
-                   "Cypher": f" MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->(n) RETURN n, TYPE(r) AS Relations, COUNT(r) AS Counts"
+                   "Cypher": f"MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->(n) RETURN n, TYPE(r) AS Relations, COUNT(r) AS Counts"
                    }
         return message
 
@@ -968,6 +984,8 @@ def find_neighbors_properties():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the nodes connected to {label_1} where {prop_1} is {val_1} and list their properties!""",
+                   "NLQ": f"List the objects that are connected to {label_1} for which {prop_1} is {val_1} and list their properties.",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f" MATCH (a:{label_1}{{{prop_1}:'{val_1}'}})-[r]->(n) RETURN properties(n), r"
                    }
@@ -1243,6 +1261,8 @@ def match_with_where_not_value():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1], [label_1, prop_2]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Retrieve distinct values of the {prop_2} from {label_1} where {prop_1} is not {val_1}!""",
+                   "NLQ": f"What are the distinct {prop_2} from {label_1} where {prop_1} is not {val_1}?",
+                   "Complexity": "0,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} <> '{val_1}' RETURN DISTINCT n.{prop_2} AS {prop_2}"
                    }
@@ -1268,6 +1288,8 @@ def match_with_where_contains_substring():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1], [label_1, prop_2]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {prop_1} and the {prop_2} for those {label_1} where {prop_1} contains the substring {val_1[:2]}!""",
+                   "NLQ": f"What are the {prop_1} and the {prop_2} for those {label_1} where {prop_1} contains the substring {val_1[:2]}?",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} CONTAINS '{val_1[2:]}' RETURN n.{prop_1} AS {prop_1}, n.{prop_2} AS {prop_2}"
         }
@@ -1292,6 +1314,8 @@ def match_with_where_starts_with_substring():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1], [label_1, prop_2]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {prop_1} and the {prop_2} for those {label_1} where {prop_1} starts with {val_1[0]}!""",
+                   "NLQ": f"What are the {prop_1} and the {prop_2} for those {label_1} where {prop_1} starts with {val_1[0]}?",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} STARTS WITH '{val_1[0]}' RETURN n.{prop_1} AS {prop_1}, n.{prop_2} AS {prop_2}"
                    }
@@ -1367,6 +1391,8 @@ def where_one_node_two_props_notnull_or():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1], [label_1, prop_2]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Fetch the distinct values of the {prop_2} from {label_1} where either {prop_1} is {val_1} or {prop_2} is not null!""",
+                   "NLQ": f"What are the distinct {prop_2}s of {label_1}s where either {prop_1} is {val_1} or {prop_2} is not null?",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} = '{val_1}' OR n.{prop_2} IS NOT NULL RETURN DISTINCT n.{prop_2} AS {prop_2}"
                    }
@@ -1443,6 +1469,8 @@ def where_one_node_two_props_two_vals_or_notnull_date():
         subschema = build_minimal_subschema(jschema, [[label_1, prop_1], [label_1, prop_2]], [], True, False, True)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the {prop_2} for those {label_1}s where {prop_1} is {val_1} and the year of the {prop_2} is {val_2[:4]}!""",
+                   "NLQ": f"Find the {prop_2} for those {label_1}s where {prop_1} is {val_1} and the year of the {prop_2} is {val_2[:4]}.",
+                   "Complexity": "1,1",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) WHERE n.{prop_1} = '{val_1}' AND date(n.{prop_2}).year = {val_2[:4]} RETURN n.{prop_2} AS {prop_2}"
                    }
@@ -2671,7 +2699,12 @@ def generate_samples():
     
     # create a list of the actual functions defined in this module corresponding to the name
     # provided by the string, and strip off the newline characters from the string 
-    samplers = [globals()[x.strip()] for x in all_samplers]
+    # samplers = [globals()[x.strip()] for x in all_samplers_strs]
+
+    # ToDo: configure samplers; at a minimum, choose between
+    # benchmark_samplers_strs and all_samplers_strs based on whether you
+    # want to generate benchmarks or samples to be used for fine-tuning. 
+    samplers = [globals()[x.strip()] for x in benchmark_samplers_strs]
     
     # List to collect the samples
     trainer=[]
@@ -2680,43 +2713,14 @@ def generate_samples():
         sampler = s()
         trainer += collect_samples(sampler, M)
 
-    sampler = count_nodes_of_given_label()
-    trainer += collect_samples(sampler, M)
-
-    sampler = paths_with_node_endpoint()
-    trainer += collect_samples(sampler, M)
-
-    sampler = match_one_node_one_prop()
-    trainer += collect_samples(sampler, M)
-
-    sampler = where_one_node_one_prop_notnull_numeral()
-    trainer += collect_samples(sampler, M)
-
-    sampler = where_one_node_one_prop_notnull_literal()
-    trainer += collect_samples(sampler, M)
-
-    sampler = where_one_node_one_prop_null_numeral()
-    trainer += collect_samples(sampler, M)
-
-    sampler = find_node_property_count()
-    trainer += collect_samples(sampler, M)
-
-    sampler = find_node_property_count()
-    trainer += collect_samples(sampler, M)
-
-    sampler = find_node_by_property()
-    trainer += collect_samples(sampler, M)
-
-    sampler = match_skip_limit_return_property()
-    trainer += collect_samples(sampler, M)
-
-
     # Display the number of samples created and save the data to a file
     print(f"There are {len(trainer)} samples in the fine-tuning dataset.")
 
     # write samples to file
-    print(f"\nWriting samples to path: {data_path+trainer_with_repeats_file}")
-    write_json(trainer, data_path+trainer_with_repeats_file)
+    # output = data_path+trainer_with_repeats_file
+    outpath = data_path + "benchmark_samplers.json"
+    print(f"\nWriting samples to path: {outpath}")
+    write_json(trainer, outpath)
 
 
 def create_min_samples_file(read_path, write_path):
@@ -2730,16 +2734,33 @@ def create_min_samples_file(read_path, write_path):
     for d in data:
         result.append({"question": d['Question'], "query": d["Cypher"]})
     with open(write_path, 'w') as f:
-        json.dump(result, f)
+        json.dump(result, f, indent=2)
     print(f"A total of {len(result)} samples written to min file at path {write_path}")
     
 
+def create_min_benchmark_samples_file(read_path, write_path):
+    """
+    Reads the benchmark file and creates a minimal samples JSON file.
+    """
+    
+    with open(read_path, 'r') as f: 
+        data = json.load(f)
+    result = []
+    for d in data:
+        result.append({"question": d['NLQ'], "query": d["Cypher"], "cmplexity": d["Complexity"]})
+    with open(write_path, 'w') as f:
+        json.dump(result, f, indent=2)
+    print(f"A total of {len(result)} benchmark samples written to min benchmark file at path {write_path}")
+    
+
+
 def main():
-    # gather_from_neo()
+    gather_from_neo()
     get_nodes_props_instances_from_files()
     generate_samples()
+    # ToDo: decide if you want either or both of the following:
     create_min_samples_file(data_path+trainer_with_repeats_file, data_path+"min_samples.json")
-
+    create_min_benchmark_samples_file(data_path+"benchmark_samplers.json", data_path+"min_samples_benchmark.json")
 
 if __name__ == '__main__':
     main()
