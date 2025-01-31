@@ -3,7 +3,34 @@ Automatically generate samples based on database
 schema. This work is based on the Neo4JLabs [text2cypher](https://github.com/neo4j-labs/text2cypher/tree/main) code
 repository.
 
-## Usage
+## CLI Usage
+We are adding a CLI to support generating clean benchmarks for one or more Neo4j instances. Use
+the same poetry environment to run the CLI.
+
+```
+python run.py --help
+```
+
+First, install the NLTK toolkit's English tagger files (the Python library is 
+already installed in the poetry environment, but this file must be downloaded
+separately)
+
+```
+python run.py install
+```
+
+Then generate a benchmark from a JSON config file:
+
+```
+python run.py benchmark --conf /path/to/config.json
+```
+
+The config file should contain connectivity information about the Neo4j instance(s)
+to analyze as well as some high-level options.
+An example config file (example_config.json) is included in this directory.
+
+
+## Usage (Previous)
 
 The main python program is [cypher_samples.py](cypher_samples.py)
 in the current directory. At a high level, this program works in a 
