@@ -12,9 +12,22 @@ import json
 
 # ToDo: Update these --- 
 NEO4J_URI = os.environ.get("NEO4J_URI", "neo4j+s://demo.neo4jlabs.com")
-NEO4J_USER = os.environ.get("NEO4J_USER", "recommendations")
-NEO4J_PASS = os.environ.get("NEO4J_PASS", "recommendations")
-NEO4J_DATABASE = "recommendations"
+
+# "Basic" Movies Graph -----
+NEO4J_USER = os.environ.get("NEO4J_USER", "movies")
+NEO4J_PASS = os.environ.get("NEO4J_PASS", "movies")
+NEO4J_DATABASE = "movies"
+
+# Movie Recommendations -----
+# NEO4J_USER = os.environ.get("NEO4J_USER", "recommendations")
+# NEO4J_PASS = os.environ.get("NEO4J_PASS", "recommendations")
+# NEO4J_DATABASE = "recommendations"
+
+# Twitter Graph -----
+# NEO4J_USER = os.environ.get("NEO4J_USER", "twitter")
+# NEO4J_PASS = os.environ.get("NEO4J_PASS", "twitter")
+# NEO4J_DATABASE = "twitter"
+
 
 NEO4J_AUTH = (NEO4J_USER, NEO4J_PASS)
 
@@ -43,7 +56,7 @@ print(r)
 # ToDo: Configure directories --------------------------------
 
 # Create a path variable for the data folder
-data_path = '/home/jstubbs/tmp/cypher_samples/movie-demo/'
+data_path = f'/home/jstubbs/project-data/ml-and-kg/hylograph/cypher_samples/{NEO4J_DATABASE}/'
 
 # Graph schema file
 schema_file = 'schema_file.json'
@@ -60,16 +73,17 @@ trainer_without_repeats_file = 'parametric_trainer_without_repeats.json'
 # ToDo: Configure options for Building Samples --------------------------------
      
 # Choose how many instances of each node label to extract
-node_instances_size = 12
+node_instances_size = 2 # 12
 
 # Choose how many instances of each relationship type to extract
-rels_instances_size = 12
+rels_instances_size = 2 # 12
 
 # Choose if to include repeats in the data builder or not
 ALLOW_REPEATS = True
 
 # Select the maximum size of each individual sampler with len(sampler) elements
-M = 50
+# M = 50
+M = 3
      
 
 # A list of all samplers
@@ -86,6 +100,13 @@ with open("benchmark_samplers.txt", 'r') as f:
         benchmark_samplers_strs.append(s)
 
 
+# A very small list of samplers that can be used to test things
+minimal_samplers_strs = []
+with open("minimal_samplers.txt", 'r') as f:
+    for s in f:
+        minimal_samplers_strs.append(s)
+
+
 def gather_from_neo():
     """
     Initial step to gather schema and data from Neo4j and write to local files.
@@ -94,6 +115,7 @@ def gather_from_neo():
     jschema = gutils.get_structured_schema
     # Check the output format
     jschema.keys()
+    print(f"Got {len(jschema.keys())} total keys in the JSON schema.")
         
     # Extract the list of nodes
     nodes = get_nodes_list(jschema)
@@ -111,6 +133,7 @@ def gather_from_neo():
     rels_instances_serialized = serialize_relationships_data(rels_instances)
         
     # Save data to json files
+    print(f"Writing data to JSON files at path: {data_path}")
     write_json(jschema, data_path+schema_file)
     write_json(nodes_instances_serialized, data_path+node_instances_file)
     write_json(rels_instances_serialized, data_path+rels_instances_file)
@@ -173,7 +196,9 @@ def get_nodes_props_instances_from_files():
     print(f"A dictionary is created, the keys are: {dparsed.keys()}.")
 
     # Display a sample entry - instance of node and property with datatype STRING
-    print(f"Sample entry: {dparsed['string_parsed'][11]}.")
+    # BUG: This index of 11 was out of range for a previous run. 
+    # print(f"Sample entry: {dparsed['string_parsed'][11]}.")
+    print(f"Sample entry: {dparsed['string_parsed'][2]}.")
 
     # Generate all possible pairs of node properties datatypes
     global dtypes_pairs
@@ -245,7 +270,7 @@ def count_nodes_of_given_label():
         subschema =  build_minimal_subschema(jschema,[[label_1, ]],[], False, False, False)[:-29] # remove relationship comment
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Find the total number of {label_1} in the graph!""",
-                   "NLQ": f"How many {label_1} are there?",
+                   "NLQ": f"How many {label_1}s are there in the {NEO4J_DATABASE} graph?",
                    "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) RETURN count(n)"
@@ -297,7 +322,7 @@ def match_one_node_one_prop():
 
         message = {"Prompt": f"{system_message}",
                    "Question": f"""Fetch the {label_1} nodes and extract their {prop_1} property!""",
-                   "NLQ": f"What is the {prop_1} of all {label_1} in the database?",
+                   "NLQ": f"What is the {prop_1} of all {label_1}s in the {NEO4J_DATABASE} graph?",
                    "Complexity": "0,0",
                    "Schema": f"Graph schema: {subschema}",
                    "Cypher": f"MATCH (n:{label_1}) RETURN n.{prop_1}"
@@ -734,7 +759,7 @@ def find_count_in_interval():
         }
         return message
 
-
+    # BUG: date_parsed resulted in a KeyError
     return build_node_sampler(dparsed["date_parsed"], # dparsed["date_parsed"]+dparsed["date_time_parsed"] when available
                                  prompter,
                                  allow_repeats= ALLOW_REPEATS)
@@ -2692,7 +2717,12 @@ def where_and_simple_path_relprops():
 
 def generate_samples():
     """
-    Actually call the individual samplers to generate the samples
+    Actually call the individual samplers to generate the samples.
+    This function can currently writes two identical files (but see which code block is commented out), 
+      * parametric_trainer_with_repeats.json
+      * generated_samples_all_fields.json
+    Both of these files contain Prompt, Question, NLQ, Complexity, Schema, and Cypher 
+    for every sample.
     """
     # List of samplers, as callables, to use to generate the samples.
     # By default we set it to all samplers defined, but this list can be modified as needed.
@@ -2704,7 +2734,9 @@ def generate_samples():
     # ToDo: configure samplers; at a minimum, choose between
     # benchmark_samplers_strs and all_samplers_strs based on whether you
     # want to generate benchmarks or samples to be used for fine-tuning. 
-    samplers = [globals()[x.strip()] for x in benchmark_samplers_strs]
+    # samplers = [globals()[x.strip()] for x in benchmark_samplers_strs]
+
+    samplers = [globals()[x.strip()] for x in minimal_samplers_strs]
     
     # List to collect the samples
     trainer=[]
@@ -2717,8 +2749,11 @@ def generate_samples():
     print(f"There are {len(trainer)} samples in the fine-tuning dataset.")
 
     # write samples to file
-    # output = data_path+trainer_with_repeats_file
-    outpath = data_path + "benchmark_samplers.json"
+    # outpath = data_path+trainer_with_repeats_file
+    # print(f"\nWriting samples to path: {outpath}")
+    # write_json(trainer, outpath)
+
+    outpath = data_path + f"{NEO4J_DATABASE}_generated_samples_all_fields.json"
     print(f"\nWriting samples to path: {outpath}")
     write_json(trainer, outpath)
 
@@ -2726,6 +2761,7 @@ def generate_samples():
 def create_min_samples_file(read_path, write_path):
     """
     Reads the training with repeats file and creates a minimal samples JSON file.
+    This function generates a file with just question and query for each sample.
     """
     
     with open(read_path, 'r') as f: 
@@ -2753,14 +2789,16 @@ def create_min_benchmark_samples_file(read_path, write_path):
     print(f"A total of {len(result)} benchmark samples written to min benchmark file at path {write_path}")
     
 
-
 def main():
     gather_from_neo()
     get_nodes_props_instances_from_files()
     generate_samples()
-    # ToDo: decide if you want either or both of the following:
-    create_min_samples_file(data_path+trainer_with_repeats_file, data_path+"min_samples.json")
-    create_min_benchmark_samples_file(data_path+"benchmark_samplers.json", data_path+"min_samples_benchmark.json")
+    # # ToDo: decide if you want either or both of the following:
+    # create_min_samples_file(data_path+trainer_with_repeats_file, data_path+"min_samples.json")
+    read_path = data_path + f"{NEO4J_DATABASE}_generated_samples_all_fields.json"
+    write_path = data_path + f"{NEO4J_DATABASE}_min_samples_benchmark.json"
+    create_min_benchmark_samples_file(read_path, write_path)
+
 
 if __name__ == '__main__':
     main()
