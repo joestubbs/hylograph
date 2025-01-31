@@ -399,6 +399,7 @@ def cli():
     pass
 
 cli.add_command(benchmark)
+cli.add_command(install)
 
 
 if __name__ == "__main__":
