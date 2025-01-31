@@ -1,0 +1,26 @@
+{
+	"base_output_path": "/home/jstubbs/project-data/ml-and-kg/hylograph/cypher_samples",
+	"node_instances_size": 2,
+	"rels_instances_size": 2,
+	"databases": [
+		{
+			"neo4j_url": "neo4j+s://demo.neo4jlabs.com",
+			"neo4j_user": "movies",
+			"neo4j_pass": "movies",
+			"neo4j_database": "movies"
+		},
+		{
+			"neo4j_url": "neo4j+s://demo.neo4jlabs.com",
+			"neo4j_user": "recommendations",
+			"neo4j_pass": "recommendations",
+			"neo4j_database": "recommendations"
+		},
+		{
+			"neo4j_url": "neo4j+s://demo.neo4jlabs.com",
+			"neo4j_user": "twitter",
+			"neo4j_pass": "twitter",
+			"neo4j_database": "twitter"
+		}
+	]
+}
+
