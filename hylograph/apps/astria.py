@@ -5,6 +5,7 @@ import os
 from apps.astria_examples import examples
 
 
+OPENAI_API_KEY=os.environ.get("OPENAI_API_KEY")
 # Neo4j Instance ----------------
 
 # L=Default to local instance:
@@ -40,6 +41,8 @@ astria_text2cypher_app_config = {
     "get_neo4j_schema": get_schema,
     # "model_base_url": "https://ollama.pods.tacc.develop.tapis.io",
     "model_base_url": "http://localhost:11434",
+    "hylograph_chromadb_path": "/tmp/hylograph/astria/chroma",
+    "sqlitecache_path":"/tmp/langchain.db",
     "hylograph": "text2query_sim_graph",
     "state": "Text2QueryGraphState",
     # "hylograph": "text2query_sim_graph_execute",

@@ -2,11 +2,13 @@ import logging
 from neo4j import GraphDatabase
 import os 
 
-# These next three lines swap the stdlib sqlite3 lib with the pysqlite3 package
-# This is required by the Chroma package and must appear BEFORE the import.
-__import__('pysqlite3')
 import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+if sys.version_info[0] == 3 and sys.version_info[1] <= 12:
+    # These next three lines swap the stdlib sqlite3 lib with the pysqlite3 package
+    # This is required by the Chroma package and must appear BEFORE the import.
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 import chromadb
 from chromadbx import DocumentSHA256Generator
@@ -18,6 +20,7 @@ from langchain_core.globals import set_llm_cache
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import FewShotPromptTemplate, PromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from logs import get_logger
 from states import Text2QueryGraphState
@@ -26,12 +29,33 @@ logger = get_logger(name="nodes.py", level=logging.INFO, strategy="stream")
 
 
 # Defaults
-DEFAULT_MODEL_URL = "https://ollama.pods.tacc.develop.tapis.io"
+DEFAULT_PROVIDER="ollama"
+#DEFAULT_MODEL_URL = "https://ollama.pods.tacc.develop.tapis.io"
+DEFAULT_MODEL_URL = "http://localhost:11434"
 DEFAULT_EMBEDDING_MODEL = "mxbai-embed-large"
 DEFAULT_LLM = "llama3.1:8b"
 
 
+
+# Persistent Database Path
+DEFAULT_SQLITECACHE_PATH = "/tmp/hylograph/langchain.db"
+DEFAULT_CHROMADB_PATH = "/tmp/hylograph/chroma"
 # Implementation Functions
+
+def get_llm_model_config(provider):
+    config={
+        "openai": {
+            "model_url":"https://api.openai.com/v1/chat/completions",
+            "embedding_model":"text-embedding-3-large",
+            "llm":"gpt-4-turbo"
+        },
+        "ollama": {
+            "model_url": DEFAULT_MODEL_URL,
+            "embedding_model": DEFAULT_EMBEDDING_MODEL,
+            "llm": DEFAULT_LLM
+        }
+    }
+    return config[provider]
 
 def validate_cypher(query, neo4j_uri, neo4j_auth): 
     """
@@ -58,20 +82,29 @@ def _get_embedding_model(model=DEFAULT_EMBEDDING_MODEL,
     """
     return OllamaEmbeddings(model=model, base_url=base_url)
 
+def _get_embedding_model_for_provider(provider):
+    """
+        Returns the embedding model used for this graph.
+    """
+    model_config = get_llm_model_config(provider)
+    if provider=="openai":
+        embeddings = OpenAIEmbeddings(model=model_config["embedding_model"])
+    else:
+        embeddings = OllamaEmbeddings(model=model_config["embedding_model"], base_url=model_config["model_url"])
+    return embeddings
 
-def get_example_selector(all_examples, 
-                         nbr_examples=5, 
-                         model=DEFAULT_EMBEDDING_MODEL, 
-                         base_url=DEFAULT_MODEL_URL):
+def get_example_selector(all_examples,
+                         nbr_examples=5,
+                         provider=DEFAULT_PROVIDER, chromadb_path=DEFAULT_CHROMADB_PATH):
     """
     Returns the example selector that is used to select a subset of `all_examples` that are the most
     similar to the question.
     """
-    model = _get_embedding_model(model, base_url)
+    model = _get_embedding_model_for_provider(provider)
     example_selector = SemanticSimilarityExampleSelector.from_examples(
         examples = all_examples,
         embeddings = model,
-        vectorstore_cls = Chroma(persist_directory="/home/jstubbs/tmp/ASTRIA/chroma"),
+        vectorstore_cls = Chroma(persist_directory=chromadb_path),
         # vectorstore_cls = Chroma,
         k=nbr_examples,   
     )
@@ -81,22 +114,21 @@ def get_example_selector(all_examples,
 def filter_examples(question, 
                     all_examples, 
                     nbr_examples=5,
-                    model=DEFAULT_EMBEDDING_MODEL, 
-                    base_url=DEFAULT_MODEL_URL):
+                    provider=DEFAULT_PROVIDER, chromadb_path=DEFAULT_CHROMADB_PATH):
     """
     Return the most relevant `nbr_examples` to the `question`.
     """
-    example_selector = get_example_selector(all_examples, nbr_examples, model, base_url)
+    example_selector = get_example_selector(all_examples, nbr_examples, provider, chromadb_path)
     return example_selector.select_examples({"question": question})
 
 
-def get_question_similarity(question, all_examples, min_l2_distance=0.5):
+def get_question_similarity(question, all_examples, min_l2_distance=0.5, chromadb_path=DEFAULT_CHROMADB_PATH):
     """
     Compute the example with the greatest similarity to the `question` from the known `examples`, and
     return the example if the L2-norm distance is less than `min_l2_distance`; otherwise, return None. 
     """
     example_questions = [e['question'] for e in all_examples]
-    chroma_client = chromadb.PersistentClient(path="/home/jstubbs/tmp/hylograph/chroma")
+    chroma_client = chromadb.PersistentClient(path=chromadb_path)
     collection = chroma_client.get_or_create_collection(name="questions")
     # only add the documents that are not already in the db:
     to_add = []
@@ -132,16 +164,27 @@ def get_question_similarity(question, all_examples, min_l2_distance=0.5):
     return None
 
 
-def _get_llm(model=DEFAULT_LLM, base_url=DEFAULT_MODEL_URL, cache_responses=True):
+
+def _get_llm_for_provider(provider=DEFAULT_PROVIDER, sqlitecachedb_path=DEFAULT_SQLITECACHE_PATH,cache_responses=True):
     """
     Returns the LLM for this graph.
     """
     if cache_responses:
-        set_llm_cache(SQLiteCache(database_path="/home/jstubbs/tmp/langchain.db"))
-    return ChatOllama(model=model, base_url=base_url)
-
+        set_llm_cache(SQLiteCache(database_path=sqlitecachedb_path))
+    llm_config = get_llm_model_config(provider)
+    if provider=="openai":
+       llm = ChatOpenAI(
+           model=llm_config["llm"],
+           temperature=0,
+           max_tokens=None,
+           timeout=None,
+           max_retries=2)
+    else:
+       llm = ChatOllama(model=llm_config["llm"], base_url=llm_config["model_url"])
+    return llm
 
 def create_few_shot_cypher_prompt(examples):
+
     """
     Create a few short prompt template to instruct an LLM to generate a Cypher query 
     without context variable. 
@@ -169,7 +212,7 @@ def create_few_shot_cypher_prompt(examples):
 
     Schema: {schema}
 
-    Examples: Here are a few examples of generated Cypher statements for particular questions:
+    Examples: Here are a few examples of generated Cypher statements for particular questions
     """
     few_shot_prompt = FewShotPromptTemplate(
         examples=examples,
@@ -204,7 +247,9 @@ def create_cypher_repair_prompt():
     return prompt
 
 
-def invoke_llm_chain(prompt_template, template_args, model=DEFAULT_LLM, base_url=DEFAULT_MODEL_URL):
+def invoke_llm_chain(prompt_template, template_args, provider=DEFAULT_PROVIDER,
+                     sqlitecachedb_path=DEFAULT_SQLITECACHE_PATH):
+
     """
     Calls the LLM with a prompt and returns the reply.
      - prompt_template: a ChatPromptTemplate created, for example, using ChatPromptTemplate.from_message()
@@ -212,7 +257,7 @@ def invoke_llm_chain(prompt_template, template_args, model=DEFAULT_LLM, base_url
 
     """
     # logger.info(f"top of invoke_llm_chain; template_args: {template_args}")
-    llm = _get_llm(model, base_url)
+    llm = _get_llm_for_provider(provider, sqlitecachedb_path)
     parser = StrOutputParser()
     chain = prompt_template | llm | parser
     result = chain.invoke(template_args)
@@ -262,20 +307,17 @@ def node_filter_neo4j_examples(state: Text2QueryGraphState):
     logger.info(f"Executing node_filter_neo4j_examples")
     app_config = state["app_config"]
     get_neo4j_examples = app_config["get_neo4j_examples"]
+    chromadb_path = app_config["hylograph_chromadb_path"]
     
-    # Optional configs
-    model_base_url = DEFAULT_MODEL_URL
-    if "model_base_url" in app_config.keys():
-        model_base_url = app_config["model_base_url"]
+    # # Optional configs
 
-    model = DEFAULT_EMBEDDING_MODEL
-    if "embedding_model" in app_config.keys():
-        model = app_config["embedding_model"]
-
+    provider=DEFAULT_PROVIDER
+    if "provider" in app_config.keys():
+        provider=app_config["provider"]
     state["examples"] = filter_examples(all_examples=get_neo4j_examples(), 
                                         question=state["question"],
-                                        model=model,
-                                        base_url=model_base_url)
+                                        provider=DEFAULT_PROVIDER, chromadb_path=chromadb_path)
+
     
     logger.info("node_filter_neo4j_examples complete.")
     return state 
@@ -307,13 +349,17 @@ def node_get_question_similarity(state: Text2QueryGraphState):
     app_config = state["app_config"]
     get_neo4j_examples = app_config["get_neo4j_examples"]  
     min_l2_distance = app_config.get("min_l2_distance")
+
+    ## get the db paths
+    chromadb_path = app_config["hylograph_chromadb_path"]
+
     if min_l2_distance:  
         generated_cypher = get_question_similarity(question=question, 
                                                 all_examples=get_neo4j_examples(), 
-                                                min_l2_distance=min_l2_distance)
+                                                min_l2_distance=min_l2_distance, chromadb_path=chromadb_path)
     else: 
         generated_cypher = get_question_similarity(question=question, 
-                                                   all_examples=get_neo4j_examples())
+                                                   all_examples=get_neo4j_examples(), chromadb_path=chromadb_path)
 
     state["generated_cypher"] = generated_cypher
     return state
@@ -353,21 +399,18 @@ def node_generate_cypher(state: Text2QueryGraphState):
             "schema": get_schema(),
             "question": question,
         }
-
+    ## get the db paths
+    sqlitecachedb_path = app_config["sqlitecachedb_path"]
     # Optional configs
-    model_base_url = DEFAULT_MODEL_URL
-    if "model_base_url" in app_config.keys():
-        model_base_url = app_config["model_base_url"]
 
-    model = DEFAULT_LLM
-    if "llm" in app_config.keys():
-        model = app_config["llm"]
-
+    provider = DEFAULT_PROVIDER
+    if "provider" in app_config.keys():
+        provider = app_config["provider"]
     generated_cypher = invoke_llm_chain(prompt_template=prompt, 
                                         template_args=template_args,
-                                        model=model,
-                                        base_url=model_base_url
-                                        )
+                                        provider=provider,
+                                        sqlitecachedb_path= sqlitecachedb_path
+                                       )
     state["generated_cypher"] = generated_cypher
     logger.info(f"node_generate_cypher complete; cypher generated: {generated_cypher}")
     return state
@@ -419,20 +462,19 @@ def node_repair_cypher(state: Text2QueryGraphState):
             "query": query,
             "error": error, 
         }
-    app_config = state["app_config"]
-    # Optional configs    
-    model_base_url = DEFAULT_MODEL_URL
-    if "model_base_url" in app_config.keys():
-        model_base_url = app_config["model_base_url"]
 
-    model = DEFAULT_LLM
-    if "llm" in app_config.keys():
-        model = app_config["llm"]
-    
+    app_config = state["app_config"]
+    ## get the db paths
+    sqlitecachedb_path = app_config["sqlitecachedb_path"]
+    # Optional configs    
+    provider = DEFAULT_PROVIDER
+    if "provider" in app_config.keys():
+        provider = app_config["provider"]
     generated_cypher = invoke_llm_chain(prompt_template=prompt, 
                                         template_args=template_args,
-                                        model=model,
-                                        base_url=model_base_url)
+                                        provider=provider,
+                                        sqlitecachedb_path= sqlitecachedb_path)
+
     state["generated_cypher"] = generated_cypher
     logger.info(f"node_repair_cypher complete; generated_cypher: {generated_cypher}")
     return state
