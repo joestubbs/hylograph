@@ -45,5 +45,9 @@ graph = graph_builder.compile()
 
 
 if __name__ == "__main__":
+    # Example invocation of the RAG pipeline defined above
+    # Note tha this pipeline assumes you have ALREADY run the utility defined in the test function 
+    # within the vector module to load, chunk, and persist the Tapis documentation into a vector db, 
+    # persisted locally on disk. 
     response = graph.invoke({"question": "What is a Tapis associate site?"})
     print(response["answer"])
