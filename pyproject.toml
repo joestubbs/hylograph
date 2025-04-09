@@ -25,6 +25,7 @@ chromadbx = "^0.0.6"
 langchain-chroma = "^0.1.4"
 pandas = "^2.2.3"
 nltk = "^3.9.1"
+pypdf = "^5.4.0"
 
 
 [build-system]
